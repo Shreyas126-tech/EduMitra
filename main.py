@@ -4,7 +4,7 @@ Serves the API and frontend static files.
 """
 
 import os
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import FastAPI, HTTPException, Depends, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -15,6 +15,7 @@ from data_manager import dm
 from auth import hash_password, verify_password, create_token, decode_token
 from ml_model import predict_student_performance, classify_student
 from chatbot import get_chatbot_response
+from email_service import send_high_risk_alert, send_admin_welcome_alert
 
 app = FastAPI(title="EduMitra API", version="1.0.0")
 
@@ -89,7 +90,7 @@ def get_current_user(token: str):
 # ── Auth Routes ─────────────────────────────────────────────────
 
 @app.post("/api/auth/admin/signup")
-async def admin_signup(data: AdminSignup):
+async def admin_signup(data: AdminSignup, background_tasks: BackgroundTasks):
     existing = dm.get_admin_by_id(data.admin_id)
     if existing:
         raise HTTPException(status_code=400, detail="Admin ID already exists")
@@ -97,6 +98,10 @@ async def admin_signup(data: AdminSignup):
     admin = dm.create_admin(data.admin_id, data.name, data.email, pw_hash)
     if not admin:
         raise HTTPException(status_code=400, detail="Failed to create admin")
+    
+    # Send welcome email alert in background
+    background_tasks.add_task(send_admin_welcome_alert, data.name, data.email)
+    
     token = create_token({"sub": admin["admin_id"], "role": "admin", "name": admin["name"]})
     return {"token": token, "role": "admin", "name": admin["name"], "admin_id": admin["admin_id"]}
 
@@ -133,7 +138,13 @@ async def user_login(data: UserLogin):
 
 @app.get("/api/dashboard/summary")
 async def dashboard_summary():
+    # optimized summary call
     return dm.get_dashboard_summary()
+
+@app.get("/api/admins")
+async def list_admins():
+    """Returns a list of all registered administrators."""
+    return dm.get_all_admins()
 
 
 # ── Student Routes ──────────────────────────────────────────────
@@ -142,19 +153,22 @@ async def dashboard_summary():
 async def create_student(data: StudentCreate):
     existing = dm.get_student_by_usn(data.usn)
     if existing:
-        raise HTTPException(status_code=400, detail="Student with this USN already exists")
+        raise HTTPException(status_code=400, detail=f"Student record for USN {data.usn} already exists.")
+    
     pw_hash = hash_password(data.password)
     student = dm.create_student(data.usn, data.name, data.email, pw_hash, data.semester, data.department)
+    
     if not student:
-        raise HTTPException(status_code=400, detail="Failed to create student")
-    student.pop("password_hash", None)
+        raise HTTPException(status_code=500, detail="Database error occurred while creating student profile.")
+    
+    # Do not return password hash
     return student
 
 
 @app.get("/api/students")
 async def list_students(
     search: Optional[str] = None,
-    sort_by: Optional[str] = Query(None, description="name, exam_score, attendance"),
+    sort_by: Optional[str] = Query(None, description="name, exam_score, attendance, usn"),
     sort_order: Optional[str] = Query("asc", description="asc or desc"),
     classification: Optional[str] = Query(None, description="Good, Average, Bad"),
     min_attendance: Optional[float] = None,
@@ -164,18 +178,13 @@ async def list_students(
     department: Optional[str] = None,
     semester: Optional[int] = None,
 ):
-    students = dm.get_all_students()
+    # This now fetches students AND their averages in a single SQL query
+    enriched = dm.get_all_students_enriched()
 
-    # Enrich with stats
-    enriched = []
-    for s in students:
-        stats = dm.get_student_stats(s["id"])
-        s["avg_exam"] = stats["avg_exam"]
-        s["avg_assignment"] = stats["avg_assignment"]
-        s["avg_attendance"] = stats["avg_attendance"]
-        s["total_subjects"] = stats["total_subjects"]
-        s["classification"] = classify_student(stats["avg_exam"])
-        enriched.append(s)
+    # Calculate classification based on 70% exam + 30% assignment
+    for s in enriched:
+        # avg_exam and avg_assignment are already rounded floats from data_manager
+        s["classification"] = classify_student(s["avg_exam"], s["avg_assignment"])
 
     # Search
     if search:
@@ -201,11 +210,11 @@ async def list_students(
     if max_attendance is not None:
         enriched = [s for s in enriched if s["avg_attendance"] <= max_attendance]
 
-    # Filter by marks range
+    # Filter by marks range (Combined Academic Score)
     if min_marks is not None:
-        enriched = [s for s in enriched if s["avg_exam"] >= min_marks]
+        enriched = [s for s in enriched if ((s["avg_exam"] * 0.7) + (s["avg_assignment"] * 0.3)) >= min_marks]
     if max_marks is not None:
-        enriched = [s for s in enriched if s["avg_exam"] <= max_marks]
+        enriched = [s for s in enriched if ((s["avg_exam"] * 0.7) + (s["avg_assignment"] * 0.3)) <= max_marks]
 
     # Sort
     if sort_by:
@@ -213,7 +222,7 @@ async def list_students(
         if sort_by == "name":
             enriched.sort(key=lambda x: x["name"].lower(), reverse=reverse)
         elif sort_by == "exam_score":
-            enriched.sort(key=lambda x: x["avg_exam"], reverse=reverse)
+            enriched.sort(key=lambda x: (x["avg_exam"] * 0.7) + (x["avg_assignment"] * 0.3), reverse=reverse)
         elif sort_by == "attendance":
             enriched.sort(key=lambda x: x["avg_attendance"], reverse=reverse)
         elif sort_by == "usn":
@@ -258,21 +267,51 @@ async def delete_student(student_id: str):
 # ── Academic Record Routes ──────────────────────────────────────
 
 @app.post("/api/students/{student_id}/records")
-async def add_record(student_id: str, data: RecordCreate):
+async def add_record(student_id: str, data: RecordCreate, background_tasks: BackgroundTasks):
     student = dm.get_student_by_id(student_id)
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
     record = dm.add_record(student_id, data.subject, data.exam_score,
                            data.assignment_score, data.attendance, data.semester)
+                           
+    stats = dm.get_student_stats(student_id)
+    pred = predict_student_performance(stats)
+    if pred["overall_risk"]["risk_level"] == "High Risk" or pred["classification"] == "Bad" or stats["avg_exam"] < 40 or stats["avg_attendance"] < 50:
+        background_tasks.add_task(
+            send_high_risk_alert,
+            student["name"],
+            student["usn"],
+            stats["avg_exam"],
+            stats["avg_attendance"],
+            pred["overall_risk"]
+        )
+        
     return record
 
 
 @app.put("/api/records/{record_id}")
-async def update_record(record_id: str, data: RecordUpdate):
+async def update_record(record_id: str, data: RecordUpdate, background_tasks: BackgroundTasks):
     updates = {k: v for k, v in data.dict().items() if v is not None}
     result = dm.update_record(record_id, updates)
     if not result:
         raise HTTPException(status_code=404, detail="Record not found")
+        
+    student_id = result.get("student_id")
+    if student_id:
+        student = dm.get_student_by_id(student_id)
+        if student:
+            stats = dm.get_student_stats(student_id)
+            pred = predict_student_performance(stats)
+            if pred["overall_risk"]["risk_level"] == "High Risk" or pred["classification"] == "Bad" or stats["avg_exam"] < 40 or stats["avg_attendance"] < 50:
+                background_tasks.add_task(
+                    send_high_risk_alert,
+                    student["name"],
+                    student["usn"],
+                    stats["avg_exam"],
+                    stats["avg_attendance"],
+                    pred["overall_risk"]
+                )
+                
     return result
 
 
@@ -305,6 +344,27 @@ async def chatbot(student_id: str, data: ChatMessage):
     response = get_chatbot_response(data.message, stats)
     return {"response": response}
 
+
+# ── Notifications ───────────────────────────────────────────────
+
+@app.post("/api/alerts/notify")
+async def notify_high_risk_admins(background_tasks: BackgroundTasks):
+    students = dm.get_all_students()
+    count = 0
+    for s in students:
+        stats = dm.get_student_stats(s["id"])
+        pred = predict_student_performance(stats)
+        if pred["overall_risk"]["risk_level"] == "High Risk" or pred["classification"] == "Bad" or stats["avg_exam"] < 40 or stats["avg_attendance"] < 50:
+            background_tasks.add_task(
+                send_high_risk_alert,
+                s["name"],
+                s["usn"],
+                stats["avg_exam"],
+                stats["avg_attendance"],
+                pred["overall_risk"]
+            )
+            count += 1
+    return {"message": f"Queued {count} high-risk alerts to admins."}
 
 # ── Serve Frontend ──────────────────────────────────────────────
 

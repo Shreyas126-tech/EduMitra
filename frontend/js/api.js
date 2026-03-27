@@ -109,6 +109,12 @@ class API {
         return this.post(`/api/chatbot/${studentId}`, { message });
     }
 
+    // ── Admins ────────────────────────────────────────
+    static getAdmins() { return this.get('/api/admins'); }
+
+    // ── Notifications ─────────────────────────────────
+    static notifyAdmins() { return this.post('/api/alerts/notify'); }
+
     // ── Logout ────────────────────────────────────────
     static logout() {
         this.clearAuth();

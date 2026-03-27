@@ -6,11 +6,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
-SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com").strip()
+SMTP_PORT_STR = os.getenv("SMTP_PORT", "587").strip()
+SMTP_PORT = int(SMTP_PORT_STR) if SMTP_PORT_STR.isdigit() else 587
+SMTP_USERNAME = os.getenv("SMTP_USERNAME", "").strip().strip('"').strip("'")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip().strip('"').strip("'")
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().strip('"').strip("'")
 
 def send_alert_email(subject: str, body_html: str):
     if not SMTP_USERNAME or not SMTP_PASSWORD or not ADMIN_EMAIL:
@@ -89,3 +90,50 @@ def send_high_risk_alert(student_name: str, usn: str, avg_exam: float, avg_att: 
     """
     
     return send_alert_email(subject, html)
+
+def send_admin_welcome_alert(admin_name: str, admin_email: str):
+    subject = f"Welcome to EduMitra, {admin_name}! 👋"
+    
+    html = f"""
+    <html>
+      <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+          <h2 style="color: #6C63FF; text-align: center;">Welcome to EduMitra!</h2>
+          <p>Hi <strong>{admin_name}</strong>,</p>
+          <p>Your administrator account has been successfully created. You can now log in and start monitoring student performance across your departments.</p>
+          
+          <div style="background: #f9f9f9; padding: 15px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 0;"><strong>What's Next?</strong></p>
+            <ul style="margin: 10px 0 0 0; padding-left: 20px;">
+              <li>Add students to the system.</li>
+              <li>Input academic records and attendance.</li>
+              <li>Monitor high-risk alerts and classification charts.</li>
+            </ul>
+          </div>
+          
+          <p>If you didn't create this account, please ignore this email or contact support.</p>
+          <br>
+          <p>Best Regards,<br><strong>The EduMitra Team</strong></p>
+        </div>
+        <p style="font-size: 11px; color: #888; text-align: center; margin-top: 20px;">This is an automated notification from the EduMitra System.</p>
+      </body>
+    </html>
+    """
+    
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = f"EduMitra Team <{SMTP_USERNAME}>"
+        msg["To"] = admin_email
+        msg.attach(MIMEText(html, "html"))
+
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USERNAME, SMTP_PASSWORD)
+            server.sendmail(SMTP_USERNAME, admin_email, msg.as_string())
+        
+        print(f"✅ Welcome email sent to {admin_email}")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to send welcome email: {e}")
+        return False

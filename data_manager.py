@@ -1,209 +1,406 @@
 """
-EduMitra — XLSX Data Manager
-Handles all CRUD operations on Excel files for students, admins, and academic records.
+EduMitra — PostgreSQL Data Manager
+Handles all CRUD operations on the SQL database for students, admins, and academic records.
 """
 
-import os
-import threading
 import uuid
-import pandas as pd
-
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
-
-STUDENT_COLUMNS = ["id", "usn", "name", "email", "password_hash", "semester", "department"]
-ADMIN_COLUMNS = ["id", "admin_id", "name", "email", "password_hash"]
-RECORD_COLUMNS = ["id", "student_id", "subject", "exam_score", "assignment_score", "attendance", "semester"]
-
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+from database import SessionLocal, engine
+import models
 
 class DataManager:
-    """Thread-safe XLSX data manager with in-memory caching."""
+    """SQL-based data manager using SQLAlchemy sessions."""
 
     def __init__(self):
-        self.lock = threading.Lock()
-        os.makedirs(DATA_DIR, exist_ok=True)
-        self._load_all()
-
-    def _load_all(self):
-        self.students = self._load("students.xlsx", STUDENT_COLUMNS)
-        self.admins = self._load("admins.xlsx", ADMIN_COLUMNS)
-        self.records = self._load("academic_records.xlsx", RECORD_COLUMNS)
-
-    def _path(self, filename):
-        return os.path.join(DATA_DIR, filename)
-
-    def _load(self, filename, columns):
-        path = self._path(filename)
-        if os.path.exists(path):
-            try:
-                df = pd.read_excel(path, engine="openpyxl")
-                for col in columns:
-                    if col not in df.columns:
-                        df[col] = ""
-                return df
-            except Exception:
-                return pd.DataFrame(columns=columns)
-        return pd.DataFrame(columns=columns)
-
-    def _save(self, df, filename):
-        df.to_excel(self._path(filename), index=False, engine="openpyxl")
+        # We'll create tables on initialization if they don't exist
+        models.Base.metadata.create_all(bind=engine)
 
     @staticmethod
     def _new_id():
         return str(uuid.uuid4())[:8]
 
+    def _get_db(self):
+        return SessionLocal()
+
     # ── Admin CRUD ──────────────────────────────────────────────
     def get_admin_by_id(self, admin_id: str):
-        with self.lock:
-            row = self.admins[self.admins["admin_id"] == admin_id]
-            return row.iloc[0].to_dict() if not row.empty else None
+        db = self._get_db()
+        try:
+            admin = db.query(models.Admin).filter(models.Admin.admin_id == admin_id).first()
+            if not admin:
+                return None
+            return {
+                "id": admin.id,
+                "admin_id": admin.admin_id,
+                "name": admin.name,
+                "email": admin.email,
+                "password_hash": admin.password_hash
+            }
+        finally:
+            db.close()
 
     def create_admin(self, admin_id: str, name: str, email: str, password_hash: str):
-        with self.lock:
-            if not self.admins[self.admins["admin_id"] == admin_id].empty:
+        db = self._get_db()
+        try:
+            # Case-insensitive check for admin_id
+            existing = db.query(models.Admin).filter(func.lower(models.Admin.admin_id) == admin_id.lower()).first()
+            if existing:
+                print(f"⚠️ Admin creation failed: ID {admin_id} already exists")
                 return None
-            new = pd.DataFrame([{
-                "id": self._new_id(),
-                "admin_id": admin_id,
-                "name": name,
-                "email": email,
-                "password_hash": password_hash
-            }])
-            self.admins = pd.concat([self.admins, new], ignore_index=True)
-            self._save(self.admins, "admins.xlsx")
-            return new.iloc[0].to_dict()
+            
+            new_admin = models.Admin(
+                id=self._new_id(),
+                admin_id=admin_id,
+                name=name,
+                email=email,
+                password_hash=password_hash
+            )
+            db.add(new_admin)
+            db.commit()
+            db.refresh(new_admin)
+            print(f"✅ Admin created: {admin_id}")
+            return {
+                "id": new_admin.id,
+                "admin_id": new_admin.admin_id,
+                "name": new_admin.name,
+                "email": new_admin.email
+            }
+        except Exception as e:
+            print(f"❌ Error creating admin: {e}")
+            db.rollback()
+            return None
+        finally:
+            db.close()
+
+    def get_all_admins(self):
+        db = self._get_db()
+        try:
+            admins = db.query(models.Admin).all()
+            return [{
+                "id": a.id,
+                "admin_id": a.admin_id,
+                "name": a.name,
+                "email": a.email
+            } for a in admins]
+        except Exception as e:
+            print(f"❌ Error fetching admins: {e}")
+            return []
+        finally:
+            db.close()
 
     # ── Student CRUD ────────────────────────────────────────────
     def get_student_by_usn(self, usn: str):
-        with self.lock:
-            row = self.students[self.students["usn"].str.upper() == usn.upper()]
-            return row.iloc[0].to_dict() if not row.empty else None
+        db = self._get_db()
+        try:
+            student = db.query(models.Student).filter(func.upper(models.Student.usn) == usn.upper()).first()
+            if not student:
+                return None
+            return {
+                "id": student.id,
+                "usn": student.usn,
+                "name": student.name,
+                "email": student.email,
+                "password_hash": student.password_hash,
+                "semester": student.semester,
+                "department": student.department
+            }
+        finally:
+            db.close()
 
     def get_student_by_id(self, student_id: str):
-        with self.lock:
-            row = self.students[self.students["id"] == student_id]
-            return row.iloc[0].to_dict() if not row.empty else None
+        db = self._get_db()
+        try:
+            student = db.query(models.Student).filter(models.Student.id == student_id).first()
+            if not student:
+                return None
+            return {
+                "id": student.id,
+                "usn": student.usn,
+                "name": student.name,
+                "email": student.email,
+                "password_hash": student.password_hash,
+                "semester": student.semester,
+                "department": student.department
+            }
+        finally:
+            db.close()
 
     def get_all_students(self):
-        with self.lock:
-            return self.students.to_dict("records")
+        db = self._get_db()
+        try:
+            students = db.query(models.Student).all()
+            return [{
+                "id": s.id,
+                "usn": s.usn,
+                "name": s.name,
+                "email": s.email,
+                "password_hash": s.password_hash,
+                "semester": s.semester,
+                "department": s.department
+            } for s in students]
+        finally:
+            db.close()
+
+    def get_all_students_enriched(self):
+        """Fetches all students with pre-calculated academic averages in ONE query."""
+        db = self._get_db()
+        try:
+            # Join Student with AcademicRecord and group by student ID
+            results = db.query(
+                models.Student,
+                func.avg(models.AcademicRecord.exam_score).label("avg_exam"),
+                func.avg(models.AcademicRecord.assignment_score).label("avg_assign"),
+                func.avg(models.AcademicRecord.attendance).label("avg_att"),
+                func.count(models.AcademicRecord.id).label("total_subjects")
+            ).outerjoin(models.AcademicRecord, models.Student.id == models.AcademicRecord.student_id)\
+             .group_by(models.Student.id).all()
+            
+            enriched = []
+            for s, avg_exam, avg_assign, avg_att, total_subjects in results:
+                enriched.append({
+                    "id": s.id,
+                    "usn": s.usn,
+                    "name": s.name,
+                    "email": s.email,
+                    "password_hash": s.password_hash,
+                    "semester": s.semester,
+                    "department": s.department,
+                    "avg_exam": round(float(avg_exam or 0), 2),
+                    "avg_assignment": round(float(avg_assign or 0), 2),
+                    "avg_attendance": round(float(avg_att or 0), 2),
+                    "total_subjects": total_subjects
+                })
+            return enriched
+        finally:
+            db.close()
 
     def create_student(self, usn, name, email, password_hash, semester, department):
-        with self.lock:
-            if not self.students[self.students["usn"].str.upper() == usn.upper()].empty:
+        db = self._get_db()
+        try:
+            # Case-insensitive USN check
+            normalized_usn = usn.strip().upper()
+            existing = db.query(models.Student).filter(func.upper(models.Student.usn) == normalized_usn).first()
+            if existing:
+                print(f"⚠️ Student creation failed: USN {normalized_usn} already exists")
                 return None
-            new = pd.DataFrame([{
-                "id": self._new_id(),
-                "usn": usn.upper(),
-                "name": name,
-                "email": email,
-                "password_hash": password_hash,
-                "semester": semester,
-                "department": department
-            }])
-            self.students = pd.concat([self.students, new], ignore_index=True)
-            self._save(self.students, "students.xlsx")
-            return new.iloc[0].to_dict()
+            
+            new_student = models.Student(
+                id=self._new_id(),
+                usn=normalized_usn,
+                name=name.strip(),
+                email=email.strip().lower(),
+                password_hash=password_hash,
+                semester=int(semester),
+                department=department.strip()
+            )
+            db.add(new_student)
+            db.commit()
+            db.refresh(new_student)
+            print(f"✅ Student created: {normalized_usn}")
+            return {
+                "id": new_student.id,
+                "usn": new_student.usn,
+                "name": new_student.name,
+                "email": new_student.email,
+                "semester": new_student.semester,
+                "department": new_student.department
+            }
+        except Exception as e:
+            print(f"❌ Error creating student: {e}")
+            db.rollback()
+            return None
+        finally:
+            db.close()
 
     def update_student(self, student_id: str, updates: dict):
-        with self.lock:
-            idx = self.students.index[self.students["id"] == student_id]
-            if idx.empty:
+        db = self._get_db()
+        try:
+            student = db.query(models.Student).filter(models.Student.id == student_id).first()
+            if not student:
                 return None
+            
             for k, v in updates.items():
-                if k in self.students.columns and k not in ("id", "password_hash"):
-                    self.students.at[idx[0], k] = v
-            self._save(self.students, "students.xlsx")
-            return self.students.loc[idx[0]].to_dict()
+                if hasattr(student, k) and k not in ("id", "password_hash"):
+                    setattr(student, k, v)
+            
+            db.commit()
+            db.refresh(student)
+            return {
+                "id": student.id,
+                "usn": student.usn,
+                "name": student.name,
+                "email": student.email,
+                "semester": student.semester,
+                "department": student.department
+            }
+        finally:
+            db.close()
 
     def delete_student(self, student_id: str):
-        with self.lock:
-            before = len(self.students)
-            self.students = self.students[self.students["id"] != student_id]
-            self.records = self.records[self.records["student_id"] != student_id]
-            if len(self.students) < before:
-                self._save(self.students, "students.xlsx")
-                self._save(self.records, "academic_records.xlsx")
-                return True
-            return False
+        db = self._get_db()
+        try:
+            student = db.query(models.Student).filter(models.Student.id == student_id).first()
+            if not student:
+                return False
+            db.delete(student)
+            db.commit()
+            return True
+        finally:
+            db.close()
 
     # ── Academic Record CRUD ────────────────────────────────────
     def get_records_by_student(self, student_id: str):
-        with self.lock:
-            rows = self.records[self.records["student_id"] == student_id]
-            return rows.to_dict("records")
+        db = self._get_db()
+        try:
+            records = db.query(models.AcademicRecord).filter(models.AcademicRecord.student_id == student_id).all()
+            return [{
+                "id": r.id,
+                "student_id": r.student_id,
+                "subject": r.subject,
+                "exam_score": r.exam_score,
+                "assignment_score": r.assignment_score,
+                "attendance": r.attendance,
+                "semester": r.semester
+            } for r in records]
+        finally:
+            db.close()
 
     def add_record(self, student_id, subject, exam_score, assignment_score, attendance, semester):
-        with self.lock:
-            new = pd.DataFrame([{
-                "id": self._new_id(),
-                "student_id": student_id,
-                "subject": subject,
-                "exam_score": float(exam_score),
-                "assignment_score": float(assignment_score),
-                "attendance": float(attendance),
-                "semester": semester
-            }])
-            self.records = pd.concat([self.records, new], ignore_index=True)
-            self._save(self.records, "academic_records.xlsx")
-            return new.iloc[0].to_dict()
+        db = self._get_db()
+        try:
+            new_rec = models.AcademicRecord(
+                id=self._new_id(),
+                student_id=student_id,
+                subject=subject,
+                exam_score=float(exam_score),
+                assignment_score=float(assignment_score),
+                attendance=float(attendance),
+                semester=semester
+            )
+            db.add(new_rec)
+            db.commit()
+            db.refresh(new_rec)
+            return {
+                "id": new_rec.id,
+                "student_id": new_rec.student_id,
+                "subject": new_rec.subject,
+                "exam_score": new_rec.exam_score,
+                "assignment_score": new_rec.assignment_score,
+                "attendance": new_rec.attendance,
+                "semester": new_rec.semester
+            }
+        finally:
+            db.close()
 
     def update_record(self, record_id: str, updates: dict):
-        with self.lock:
-            idx = self.records.index[self.records["id"] == record_id]
-            if idx.empty:
+        db = self._get_db()
+        try:
+            record = db.query(models.AcademicRecord).filter(models.AcademicRecord.id == record_id).first()
+            if not record:
                 return None
+            
             for k, v in updates.items():
                 if k in ("exam_score", "assignment_score", "attendance", "subject", "semester"):
-                    self.records.at[idx[0], k] = float(v) if k != "subject" and k != "semester" else v
-            self._save(self.records, "academic_records.xlsx")
-            return self.records.loc[idx[0]].to_dict()
+                    setattr(record, k, float(v) if k not in ("subject", "semester") else v)
+            
+            db.commit()
+            db.refresh(record)
+            return {
+                "id": record.id,
+                "student_id": record.student_id,
+                "subject": record.subject,
+                "exam_score": record.exam_score,
+                "assignment_score": record.assignment_score,
+                "attendance": record.attendance,
+                "semester": record.semester
+            }
+        finally:
+            db.close()
 
     def delete_record(self, record_id: str):
-        with self.lock:
-            before = len(self.records)
-            self.records = self.records[self.records["id"] != record_id]
-            if len(self.records) < before:
-                self._save(self.records, "academic_records.xlsx")
-                return True
-            return False
+        db = self._get_db()
+        try:
+            record = db.query(models.AcademicRecord).filter(models.AcademicRecord.id == record_id).first()
+            if not record:
+                return False
+            db.delete(record)
+            db.commit()
+            return True
+        finally:
+            db.close()
 
     # ── Analytics ───────────────────────────────────────────────
     def get_student_stats(self, student_id: str):
-        with self.lock:
-            recs = self.records[self.records["student_id"] == student_id]
-            if recs.empty:
+        db = self._get_db()
+        try:
+            recs = db.query(models.AcademicRecord).filter(models.AcademicRecord.student_id == student_id).all()
+            if not recs:
                 return {"avg_exam": 0, "avg_assignment": 0, "avg_attendance": 0,
                         "subjects": [], "exam_scores": [], "assignment_scores": [],
                         "attendances": [], "total_subjects": 0}
+            
+            exam_scores = [r.exam_score for r in recs]
+            assignment_scores = [r.assignment_score for r in recs]
+            attendances = [r.attendance for r in recs]
+            
             return {
-                "avg_exam": round(recs["exam_score"].mean(), 2),
-                "avg_assignment": round(recs["assignment_score"].mean(), 2),
-                "avg_attendance": round(recs["attendance"].mean(), 2),
-                "subjects": recs["subject"].tolist(),
-                "exam_scores": recs["exam_score"].tolist(),
-                "assignment_scores": recs["assignment_score"].tolist(),
-                "attendances": recs["attendance"].tolist(),
+                "avg_exam": round(sum(exam_scores) / len(recs), 2),
+                "avg_assignment": round(sum(assignment_scores) / len(recs), 2),
+                "avg_attendance": round(sum(attendances) / len(recs), 2),
+                "subjects": [r.subject for r in recs],
+                "exam_scores": exam_scores,
+                "assignment_scores": assignment_scores,
+                "attendances": attendances,
                 "total_subjects": len(recs),
             }
+        finally:
+            db.close()
 
     def get_dashboard_summary(self):
-        with self.lock:
-            total = len(self.students)
+        """Optimized summary of all students' performance using limited queries."""
+        db = self._get_db()
+        try:
+            total_students = db.query(models.Student).count()
+            if total_students == 0:
+                return {"total": 0, "good": 0, "average": 0, "bad": 0}
+            
+            # Use SQL grouping/aggregation for efficiency to determine counts
+            # For simplicity, we'll calculate the average exam score per student
+            # and count based on those results in one go.
+            from sqlalchemy import select
+            
+            # Subquery to get average academic scores by student_id
+            avg_subquery = db.query(
+                models.AcademicRecord.student_id,
+                func.avg(models.AcademicRecord.exam_score).label("avg_exam"),
+                func.avg(models.AcademicRecord.assignment_score).label("avg_assign")
+            ).group_by(models.AcademicRecord.student_id).all()
+            
             good = avg = bad = 0
-            for _, s in self.students.iterrows():
-                recs = self.records[self.records["student_id"] == s["id"]]
-                if recs.empty:
-                    bad += 1
-                    continue
-                mean_exam = recs["exam_score"].mean()
-                if mean_exam >= 75:
+            student_ids_with_records = set()
+            
+            for row in avg_subquery:
+                student_ids_with_records.add(row.student_id)
+                # Weighted score: 70% exam, 30% assignment
+                score = (row.avg_exam * 0.7) + (row.avg_assign * 0.3)
+                
+                if score >= 75:
                     good += 1
-                elif mean_exam >= 50:
+                elif score >= 50:
                     avg += 1
                 else:
                     bad += 1
-            return {"total": total, "good": good, "average": avg, "bad": bad}
-
+            
+            # Students with no records are considered "bad/at risk" by default for alertness
+            bad += (total_students - len(student_ids_with_records))
+            
+            return {"total": total_students, "good": good, "average": avg, "bad": bad}
+        except Exception as e:
+            print(f"❌ Error in dashboard summary: {e}")
+            return {"total": 0, "good": 0, "average": 0, "bad": 0}
+        finally:
+            db.close()
 
 # Singleton
 dm = DataManager()

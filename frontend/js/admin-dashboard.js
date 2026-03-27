@@ -24,15 +24,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // ── Load Dashboard Data ────────────────────
     async function loadDashboard() {
         try {
-            const [summary, studentsData] = await Promise.all([
+            const [summary, studentsData, adminsData] = await Promise.all([
                 API.getDashboardSummary(),
-                API.getStudents()
+                API.getStudents(),
+                API.getAdmins()
             ]);
             updateSummaryCards(summary);
             allStudents = studentsData.students;
             renderTable(allStudents);
             renderCharts(summary, allStudents);
             checkAutomatedAlerts(allStudents);
+            renderAdminsTable(adminsData);
         } catch (err) {
             console.error('Failed to load dashboard:', err);
         }
@@ -74,12 +76,39 @@ document.addEventListener('DOMContentLoaded', () => {
                             <p class="text-sm" style="color:var(--text-secondary)">${highRisk.length} student(s) urgently need attention due to extremely low scores or attendance.</p>
                         </div>
                     </div>
+                    <button class="btn-danger flex items-center gap-2" style="white-space:nowrap;" onclick="notifyAdmins()" id="notifyAdminsBtn">
+                        ✉️ Notify Admins via Email
+                    </button>
                 </div>
             `;
         } else {
             container.innerHTML = '';
         }
     }
+
+    // ── Send Alert Notification ────────────────────
+    window.notifyAdmins = async function() {
+        const btn = document.getElementById('notifyAdminsBtn');
+        if (btn) {
+            btn.innerHTML = '⏳ Sending...';
+            btn.disabled = true;
+            btn.style.opacity = '0.7';
+            btn.style.cursor = 'wait';
+        }
+        try {
+            const res = await API.notifyAdmins();
+            alert("Success: " + res.message);
+        } catch (err) {
+            alert('Failed to send notifications: ' + err.message);
+        } finally {
+            if (btn) {
+                btn.innerHTML = '✉️ Notify Admins via Email';
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer';
+            }
+        }
+    };
 
     // ── Charts ─────────────────────────────────
     function renderCharts(summary, students) {
@@ -207,6 +236,25 @@ document.addEventListener('DOMContentLoaded', () => {
         if (score >= 75) return 'color:var(--success)';
         if (score >= 50) return 'color:var(--warning)';
         return 'color:var(--danger)';
+    }
+
+    // ── Render Admins Table ─────────────────────
+    function renderAdminsTable(admins) {
+        const tbody = document.getElementById('adminsTableBody');
+        if (!tbody) return;
+
+        if (!admins || !admins.length) {
+            tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4">No administrators found.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = admins.map(a => `
+            <tr>
+                <td class="font-semibold">${a.name}</td>
+                <td><span class="badge" style="background:rgba(255,255,255,0.05);color:var(--text-secondary);border:1px solid rgba(255,255,255,0.1)">${a.admin_id}</span></td>
+                <td style="color:var(--text-muted)">${a.email}</td>
+            </tr>
+        `).join('');
     }
 
     // ── Search ─────────────────────────────────

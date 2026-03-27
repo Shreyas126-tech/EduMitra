@@ -170,10 +170,12 @@
             </div>
         </div>
 
+        </div>
+
         <!-- Students Table -->
-        <div class="glass-card overflow-hidden fade-in-up">
+        <div class="glass-card overflow-hidden fade-in-up mb-8">
             <div class="p-4 flex items-center justify-between" style="border-bottom:1px solid rgba(255,255,255,0.06)">
-                <span class="text-sm font-medium" style="color:var(--text-muted)" id="displayCount">Loading...</span>
+                <span class="text-sm font-medium" style="color:var(--text-muted)" id="displayCount">Loading students...</span>
             </div>
             <div class="overflow-x-auto">
                 <table class="data-table">
@@ -198,6 +200,31 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+        </div>
+
+        <!-- Admins (Client) Table -->
+        <div class="fade-in-up">
+            <h2 class="text-xl font-bold mb-4" style="color:var(--text-primary)">Administrator Management (Clients)</h2>
+            <div class="glass-card overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Admin ID</th>
+                                <th>Email</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adminsTableBody">
+                            <tr>
+                                <td colspan="3" class="text-center py-6">
+                                    <p style="color:var(--text-muted)">Loading administrators...</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </main>

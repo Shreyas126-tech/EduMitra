@@ -19,11 +19,17 @@ def load_model():
 model = load_model()
 
 
-def classify_student(avg_exam: float) -> str:
-    """Classify based on average exam score."""
-    if avg_exam >= 75:
+def classify_student(avg_exam: float, avg_assign: float = None) -> str:
+    """Classify based on average academic performance (70% Exam, 30% Assignment)."""
+    if avg_assign is None:
+        # Fallback to pure exam score if assignment is not available
+        score = avg_exam
+    else:
+        score = (avg_exam * 0.7) + (avg_assign * 0.3)
+    
+    if score >= 75:
         return "Good"
-    elif avg_exam >= 50:
+    elif score >= 50:
         return "Average"
     return "Bad"
 
