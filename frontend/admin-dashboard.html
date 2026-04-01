@@ -72,6 +72,28 @@
             </div>
         </div>
 
+        <!-- Category Performance Visualizations -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 fade-in-up">
+            <div class="glass-card p-4">
+                <h3 class="text-sm font-bold mb-3 text-center" style="color:var(--primary-light)">Marks Distribution</h3>
+                <div style="height:180px;position:relative">
+                    <canvas id="marksPieChart"></canvas>
+                </div>
+            </div>
+            <div class="glass-card p-4">
+                <h3 class="text-sm font-bold mb-3 text-center" style="color:var(--secondary)">Assignments Distribution</h3>
+                <div style="height:180px;position:relative">
+                    <canvas id="assignmentsPieChart"></canvas>
+                </div>
+            </div>
+            <div class="glass-card p-4">
+                <h3 class="text-sm font-bold mb-3 text-center" style="color:var(--accent)">Attendance Distribution</h3>
+                <div style="height:180px;position:relative">
+                    <canvas id="attendancePieChart"></canvas>
+                </div>
+            </div>
+        </div>
+
         <!-- High Risk Segmentation -->
         <div class="mb-8 fade-in-up">
             <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
@@ -308,7 +330,32 @@
                     <label class="form-label">Password</label>
                     <input type="password" id="createPassword" class="form-input" placeholder="Min 6 characters">
                 </div>
-                <button onclick="submitCreateStudent()" class="btn-primary w-full mt-4">Create Student</button>
+
+                <div class="mt-6 pt-6" style="border-top:1px solid rgba(255,255,255,0.06)">
+                    <h3 class="text-sm font-bold mb-4 gradient-text">Initial Academic Record (Optional)</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="form-label text-xs">Subject Name</label>
+                            <input type="text" id="createSubjName" class="form-input form-input-sm" placeholder="e.g. Mathematics">
+                        </div>
+                        <div class="grid grid-cols-3 gap-3">
+                            <div>
+                                <label class="form-label text-xs">Exam %</label>
+                                <input type="number" id="createSubjExam" class="form-input form-input-sm" min="0" max="100" placeholder="0-100">
+                            </div>
+                            <div>
+                                <label class="form-label text-xs">Assign %</label>
+                                <input type="number" id="createSubjAssign" class="form-input form-input-sm" min="0" max="100" placeholder="0-100">
+                            </div>
+                            <div>
+                                <label class="form-label text-xs">Attend %</label>
+                                <input type="number" id="createSubjAttend" class="form-input form-input-sm" min="0" max="100" placeholder="0-100">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <button onclick="submitCreateStudent()" class="btn-primary w-full mt-4">Create Student & Records</button>
             </div>
         </div>
     </div>
@@ -356,7 +403,7 @@
         </div>
     </div>
 
-    <script src="/js/api.js"></script>
-    <script src="/js/admin-dashboard.js"></script>
+    <script src="/js/api.js?v=2"></script>
+    <script src="/js/admin-dashboard.js?v=2"></script>
 </body>
 </html>

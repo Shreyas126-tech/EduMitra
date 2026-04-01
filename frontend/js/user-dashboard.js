@@ -3,6 +3,88 @@
  * Shows the logged-in student's academic data, charts, and predictions.
  */
 
+// ── Globals ────────────────────────────────────────────────
+window.userLogout = function() { API.logout(); };
+
+window.openFeaturesModal = function() {
+    document.getElementById('featuresModal').classList.add('active');
+};
+
+window.closeFeaturesModal = function() {
+    document.getElementById('featuresModal').classList.remove('active');
+};
+
+window.showToast = function(message, type = 'success') {
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    const icons = { success: '✅', error: '❌', info: 'ℹ️', warning: '⚠️' };
+    toast.innerHTML = `<span>${icons[type] || '🔔'}</span><span>${message}</span>`;
+    container.appendChild(toast);
+    setTimeout(() => toast.classList.add('active'), 10);
+    setTimeout(() => {
+        toast.classList.remove('active');
+        setTimeout(() => toast.remove(), 400);
+    }, 4000);
+};
+
+let calcTimeout;
+window.updateCalculator = function() {
+    const examInput = document.getElementById('calcExam').value;
+    const attInput = document.getElementById('calcAtt').value;
+    const assignInput = document.getElementById('calcAssign').value;
+
+    if (examInput === '' || attInput === '' || assignInput === '') {
+        window.showToast('Please enter all marks to predict risk', 'warning');
+        return;
+    }
+
+    const exam = parseFloat(examInput);
+    const att = parseFloat(attInput);
+    const assign = parseFloat(assignInput);
+
+    clearTimeout(calcTimeout);
+    calcTimeout = setTimeout(async () => {
+        try {
+            const prediction = await API.getInteractivePrediction({
+                exam_score: exam,
+                attendance: att,
+                assignment_score: assign
+            });
+            window.renderInteractiveRisk(prediction);
+        } catch (err) {
+            console.error('Interactive prediction failed:', err);
+        }
+    }, 400);
+};
+
+window.renderInteractiveRisk = function(prediction) {
+    const levelEl = document.getElementById('calcLevel');
+    const level = prediction.risk_level;
+    levelEl.textContent = level.toUpperCase();
+    levelEl.className = `text-3xl font-black mb-4 badge badge-${level.toLowerCase().replace(' ', '-')}`;
+
+    const barsEl = document.getElementById('calcProbBars');
+    if (!barsEl) return;
+    barsEl.innerHTML = '';
+    if (!prediction.probabilities) return;
+    Object.entries(prediction.probabilities).forEach(([k, v]) => {
+        const color = k === 'Low Risk' ? 'var(--success)' : k === 'Medium Risk' ? 'var(--warning)' : 'var(--danger)';
+        barsEl.innerHTML += `
+            <div>
+                <div class="flex justify-between text-xs mb-1">
+                    <span class="opacity-60">${k}</span>
+                    <span class="font-bold">${v}%</span>
+                </div>
+                <div class="h-2 bg-white/5 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full transition-all duration-500" style="width:${v}%; background:${color}"></div>
+                </div>
+            </div>`;
+    });
+};
+
 document.addEventListener('DOMContentLoaded', () => {
     if (!API.isLoggedIn() || API.getRole() !== 'student') {
         window.location.href = '/login';
@@ -22,12 +104,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     loadUserDashboard(studentId);
-
-    // Initialize chatbot
     new ChatbotWidget(studentId);
+    window.updateCalculator();
 
-    // Initial Calculator update
-    updateCalculator();
+    // Close on overlay click
+    document.getElementById('featuresModal')?.addEventListener('click', (e) => {
+        if (e.target.id === 'featuresModal') window.closeFeaturesModal();
+    });
 
     async function loadUserDashboard(id) {
         try {
@@ -47,12 +130,10 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('overallAssignment').textContent = `${stats.avg_assignment}%`;
         document.getElementById('totalSubjects').textContent = stats.total_subjects;
 
-        // Color coding
         setCardColor('examCard', stats.avg_exam);
         setCardColor('attendCard', stats.avg_attendance);
         setCardColor('assignCard', stats.avg_assignment);
 
-        // Classification & Risk
         const classBadge = document.getElementById('userClassification');
         classBadge.textContent = prediction.classification;
         classBadge.className = `badge badge-${prediction.classification.toLowerCase()}`;
@@ -66,24 +147,56 @@ document.addEventListener('DOMContentLoaded', () => {
         riskBadge.style.fontSize = '1rem';
         riskBadge.style.padding = '8px 20px';
 
-        // Risk explanation
         document.getElementById('riskExplanation').innerHTML = getRiskExplanation(prediction);
 
-        // Circular progress
         renderCircle('userExamCircle', stats.avg_exam);
         renderCircle('userAttCircle', stats.avg_attendance);
         renderCircle('userAssignCircle', stats.avg_assignment);
 
-        // Charts
-        if (stats.subjects.length > 0) {
+        if (stats.subjects && stats.subjects.length > 0) {
             renderExamBarChart(stats);
             renderScorePieChart(stats);
             renderTrendChart(stats);
             renderAttendanceBarChart(stats);
+            renderAssignmentBarChart(stats);
         }
 
-        // Records table
         renderRecords(records);
+    }
+
+    function renderAssignmentBarChart(stats) {
+        const ctx = document.getElementById('userAssignChart');
+        if (!ctx) return;
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: stats.subjects,
+                datasets: [{
+                    label: 'Assignment Score %',
+                    data: stats.assignment_scores,
+                    backgroundColor: stats.assignment_scores.map(a =>
+                        a >= 75 ? 'rgba(255,101,132,0.6)' : a >= 50 ? 'rgba(255,165,2,0.6)' : 'rgba(255,71,87,0.6)'
+                    ),
+                    borderColor: stats.assignment_scores.map(a =>
+                        a >= 75 ? '#FF6584' : (a >= 50 ? '#FFA502' : '#FF4757')
+                    ),
+                    borderWidth: 2,
+                    borderRadius: 8,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    title: { display: true, text: 'Assignments by Subject', color: '#FFFFFE', font: { size: 14, weight: '600' } }
+                },
+                scales: {
+                    y: { beginAtZero: true, max: 100, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#A7A9BE' } },
+                    x: { grid: { display: false }, ticks: { color: '#A7A9BE', maxRotation: 45 } }
+                }
+            }
+        });
     }
 
     function setCardColor(cardId, value) {
@@ -97,7 +210,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function getRiskExplanation(prediction) {
         const p = prediction;
         let html = '<div class="space-y-3">';
-        
         const getRiskBadge = (level) => {
             const cls = level.toLowerCase().replace(' ', '-');
             return `<span class="badge badge-${cls}">${level}</span>`;
@@ -154,7 +266,6 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.lineWidth = 8;
         ctx.stroke();
 
-        // Animated progress
         let progress = 0;
         const animate = () => {
             progress += 2;
@@ -342,98 +453,4 @@ document.addEventListener('DOMContentLoaded', () => {
             </tr>`;
         }).join('');
     }
-
-    // Logout
-    window.userLogout = function() { API.logout(); };
-
-    // ── Risk Calculator ─────────────────────────
-    let calcTimeout;
-    window.updateCalculator = function() {
-        const exam = parseFloat(document.getElementById('calcExam').value);
-        const att = parseFloat(document.getElementById('calcAtt').value);
-        const assign = parseFloat(document.getElementById('calcAssign').value);
-
-        document.getElementById('calcExamVal').textContent = `${exam}%`;
-        document.getElementById('calcAttVal').textContent = `${att}%`;
-        document.getElementById('calcAssignVal').textContent = `${assign}%`;
-
-        clearTimeout(calcTimeout);
-        calcTimeout = setTimeout(async () => {
-            try {
-                const prediction = await API.getInteractivePrediction({
-                    exam_score: exam,
-                    attendance: att,
-                    assignment_score: assign
-                });
-                renderInteractiveRisk(prediction);
-            } catch (err) {
-                console.error('Interactive prediction failed:', err);
-            }
-        }, 400);
-    };
-
-    function renderInteractiveRisk(prediction) {
-        const levelEl = document.getElementById('calcLevel');
-        const level = prediction.risk_level;
-        levelEl.textContent = level.toUpperCase();
-        levelEl.className = `text-3xl font-black mb-4 badge badge-${level.toLowerCase().replace(' ', '-')}`;
-
-        const barsEl = document.getElementById('calcProbBars');
-        if (!barsEl) return;
-        barsEl.innerHTML = '';
-        Object.entries(prediction.probabilities).forEach(([k, v]) => {
-            const color = k === 'Low Risk' ? 'var(--success)' : k === 'Medium Risk' ? 'var(--warning)' : 'var(--danger)';
-            barsEl.innerHTML += `
-                <div>
-                    <div class="flex justify-between text-xs mb-1">
-                        <span class="opacity-60">${k}</span>
-                        <span class="font-bold">${v}%</span>
-                    </div>
-                    <div class="h-2 bg-white/5 rounded-full overflow-hidden">
-                        <div class="h-full rounded-full transition-all duration-500" style="width:${v}%; background:${color}"></div>
-                    </div>
-                </div>
-            `;
-        });
-    }
-
-    // ── Toast System ───────────────────────────
-    window.showToast = function(message, type = 'success') {
-        const container = document.getElementById('toastContainer');
-        if (!container) return;
-
-        const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
-        
-        const icons = { success: '✅', error: '❌', info: 'ℹ️', warning: '⚠️' };
-        toast.innerHTML = `
-            <span>${icons[type] || '🔔'}</span>
-            <span>${message}</span>
-        `;
-        
-        container.appendChild(toast);
-        
-        // Trigger animation
-        setTimeout(() => toast.classList.add('active'), 10);
-        
-        // Remove after 4s
-        setTimeout(() => {
-            toast.classList.remove('active');
-            setTimeout(() => toast.remove(), 400);
-        }, 4000);
-    };
-
-    // ── Features Modal ─────────────────────────
-    window.openFeaturesModal = function() {
-        document.getElementById('featuresModal').classList.add('active');
-    };
-
-    window.closeFeaturesModal = function() {
-        document.getElementById('featuresModal').classList.remove('active');
-    };
-
-    // Close on overlay click
-    document.getElementById('featuresModal')?.addEventListener('click', (e) => {
-        if (e.target.id === 'featuresModal') closeFeaturesModal();
-    });
 });

@@ -82,6 +82,7 @@ class StudentCreate(BaseModel):
     password: str
     semester: int
     department: str
+    records: Optional[list[dict]] = None
 
 class StudentUpdate(BaseModel):
     name: Optional[str] = None
@@ -176,7 +177,9 @@ async def create_student(data: StudentCreate):
         raise HTTPException(status_code=400, detail=f"Student record for USN {data.usn} already exists.")
     
     pw_hash = hash_password(data.password)
-    student = dm.create_student(data.usn, data.name, data.email, pw_hash, data.semester, data.department)
+    student = dm.create_student_with_records(
+        data.usn, data.name, data.email, pw_hash, data.semester, data.department, data.records
+    )
     
     if not student:
         raise HTTPException(status_code=500, detail="Database error occurred while creating student profile.")
@@ -312,7 +315,8 @@ async def add_record(student_id: str, data: RecordCreate, background_tasks: Back
             student["usn"],
             stats["avg_exam"],
             stats["avg_attendance"],
-            pred["overall_risk"]
+            pred["overall_risk"],
+            student["email"]
         )
         
     return record
@@ -338,7 +342,8 @@ async def update_record(record_id: str, data: RecordUpdate, background_tasks: Ba
                     student["usn"],
                     stats["avg_exam"],
                     stats["avg_attendance"],
-                    pred["overall_risk"]
+                    pred["overall_risk"],
+                    student["email"]
                 )
                 
     return result
@@ -396,7 +401,8 @@ async def notify_high_risk_admins(background_tasks: BackgroundTasks):
                 s["usn"],
                 stats["avg_exam"],
                 stats["avg_attendance"],
-                pred["overall_risk"]
+                pred["overall_risk"],
+                s["email"]
             )
             count += 1
     return {"message": f"Queued {count} high-risk alerts to admins."}

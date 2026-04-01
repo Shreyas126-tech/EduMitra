@@ -127,24 +127,22 @@
                     <div>
                         <div class="flex justify-between mb-2">
                             <label class="form-label">Exam Marks %</label>
-                            <span class="font-bold text-primary" id="calcExamVal">75%</span>
                         </div>
-                        <input type="range" id="calcExam" class="range-input" min="0" max="100" value="75" oninput="updateCalculator()">
+                        <input type="number" id="calcExam" class="form-input" min="0" max="100" value="75" placeholder="Enter exam %">
                     </div>
                     <div>
                         <div class="flex justify-between mb-2">
                             <label class="form-label">Attendance %</label>
-                            <span class="font-bold text-accent" id="calcAttVal">75%</span>
                         </div>
-                        <input type="range" id="calcAtt" class="range-input" min="0" max="100" value="75" oninput="updateCalculator()">
+                        <input type="number" id="calcAtt" class="form-input" min="0" max="100" value="75" placeholder="Enter attendance %">
                     </div>
                     <div>
                         <div class="flex justify-between mb-2">
                             <label class="form-label">Assignment Score %</label>
-                            <span class="font-bold text-secondary" id="calcAssignVal">75%</span>
                         </div>
-                        <input type="range" id="calcAssign" class="range-input" min="0" max="100" value="75" oninput="updateCalculator()">
+                        <input type="number" id="calcAssign" class="form-input" min="0" max="100" value="75" placeholder="Enter assignment %">
                     </div>
+                    <button class="btn-primary w-full mt-4" onclick="updateCalculator()">Calculate Risk Prediction →</button>
                 </div>
                 <div class="flex flex-col items-center justify-center p-6 rounded-2xl bg-dark-900 border border-white/5">
                     <div class="text-sm opacity-60 mb-2">Predicted Risk Level</div>
@@ -162,13 +160,16 @@
                 <canvas id="userExamChart"></canvas>
             </div>
             <div class="chart-container fade-in-up" style="height:320px">
-                <canvas id="userPieChart"></canvas>
+                <canvas id="userAttendChart"></canvas>
+            </div>
+            <div class="chart-container fade-in-up" style="height:320px">
+                <canvas id="userAssignChart"></canvas>
             </div>
             <div class="chart-container fade-in-up" style="height:320px">
                 <canvas id="userTrendChart"></canvas>
             </div>
             <div class="chart-container fade-in-up" style="height:320px">
-                <canvas id="userAttendChart"></canvas>
+                <canvas id="userPieChart"></canvas>
             </div>
         </div>
 
@@ -274,8 +275,8 @@
         </div>
     </div>
 
-    <script src="/js/api.js"></script>
-    <script src="/js/chatbot.js"></script>
-    <script src="/js/user-dashboard.js"></script>
+    <script src="/js/api.js?v=2"></script>
+    <script src="/js/chatbot.js?v=2"></script>
+    <script src="/js/user-dashboard.js?v=2"></script>
 </body>
 </html>

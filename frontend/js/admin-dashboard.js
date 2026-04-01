@@ -18,6 +18,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentFilters = {};
     let pieChartInstance = null;
     let barChartInstance = null;
+    let marksChartInstance = null;
+    let assignmentsChartInstance = null;
+    let attendanceChartInstance = null;
 
     loadDashboard();
 
@@ -119,10 +122,51 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderCharts(summary, students) {
         const pieCtx = document.getElementById('overallPieChart')?.getContext('2d');
         const barCtx = document.getElementById('averageBarChart')?.getContext('2d');
+        const mCtx = document.getElementById('marksPieChart')?.getContext('2d');
+        const aCtx = document.getElementById('assignmentsPieChart')?.getContext('2d');
+        const attCtx = document.getElementById('attendancePieChart')?.getContext('2d');
+        
         if (!pieCtx || !barCtx) return;
 
         if (pieChartInstance) pieChartInstance.destroy();
         if (barChartInstance) barChartInstance.destroy();
+        if (marksChartInstance) marksChartInstance.destroy();
+        if (assignmentsChartInstance) assignmentsChartInstance.destroy();
+        if (attendanceChartInstance) attendanceChartInstance.destroy();
+
+        const createMiniPie = (ctx, data, title) => {
+            return new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Good', 'Avg', 'Poor'],
+                    datasets: [{
+                        data: [data.good, data.average, data.poor],
+                        backgroundColor: ['#43E97B', '#F1C40F', '#FF4757'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '70%',
+                    plugins: {
+                        legend: { display: false },
+                        datalabels: {
+                            color: '#fff',
+                            font: { size: 10, weight: 'bold' },
+                            formatter: (value) => {
+                                const total = data.good + data.average + data.poor || 1;
+                                return value > 0 ? `${Math.round((value / total) * 100)}%` : '';
+                            }
+                        }
+                    }
+                }
+            });
+        };
+
+        if (mCtx && summary.marks) marksChartInstance = createMiniPie(mCtx, summary.marks);
+        if (aCtx && summary.assignments) assignmentsChartInstance = createMiniPie(aCtx, summary.assignments);
+        if (attCtx && summary.attendance) attendanceChartInstance = createMiniPie(attCtx, summary.attendance);
 
         // 1. Pie Chart (Distribution with Percentages)
         const total = summary.total || 1;
@@ -547,6 +591,11 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('createSemester').value = '1';
         document.getElementById('createDepartment').value = '';
         document.getElementById('createPassword').value = '';
+        // Clear academic record fields
+        document.getElementById('createSubjName').value = '';
+        document.getElementById('createSubjExam').value = '';
+        document.getElementById('createSubjAssign').value = '';
+        document.getElementById('createSubjAttend').value = '';
     };
 
     window.submitCreateStudent = async function() {
@@ -557,16 +606,40 @@ document.addEventListener('DOMContentLoaded', () => {
         const department = document.getElementById('createDepartment').value.trim();
         const password = document.getElementById('createPassword').value.trim();
 
+        // New record fields
+        const subjName = document.getElementById('createSubjName').value.trim();
+        const subjExam = document.getElementById('createSubjExam').value.trim();
+        const subjAssign = document.getElementById('createSubjAssign').value.trim();
+        const subjAttend = document.getElementById('createSubjAttend').value.trim();
+
         if (!usn || !name || !email || !semester || !department || !password) {
-            showToast("Please fill in all details", "warning");
+            showToast("Please fill in all core student details", "warning");
             return;
         }
 
+        // Simple Email Validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            showToast("Please enter a valid email address", "warning");
+            return;
+        }
+
+        const records = [];
+        if (subjName && subjExam !== "" && subjAssign !== "" && subjAttend !== "") {
+            records.push({
+                subject: subjName,
+                exam_score: parseFloat(subjExam),
+                assignment_score: parseFloat(subjAssign),
+                attendance: parseFloat(subjAttend),
+                semester: semester
+            });
+        }
+
         try {
-            await API.createStudent({ usn, name, email, semester, department, password });
-            showToast('Student created successfully', 'success');
+            await API.createStudent({ usn, name, email, semester, department, password, records });
+            showToast(records.length > 0 ? 'Student & initial records created' : 'Student profile created', 'success');
             closeCreateModal();
-            loadDashboard(); // immediately refreshes the dashboard
+            loadDashboard(); 
         } catch (err) {
             showToast('Failed to create student: ' + err.message, 'error');
         }

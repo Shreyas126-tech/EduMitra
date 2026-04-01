@@ -175,6 +175,61 @@ class DataManager:
         finally:
             db.close()
 
+    def create_student_with_records(self, usn, name, email, password_hash, semester, department, initial_records=None):
+        """Create a student and their initial academic records in a single transaction."""
+        db = self._get_db()
+        try:
+            normalized_usn = usn.strip().upper()
+            existing = db.query(models.Student).filter(func.upper(models.Student.usn) == normalized_usn).first()
+            if existing:
+                print(f"⚠️ Student creation failed: USN {normalized_usn} already exists")
+                return None
+            
+            new_student = models.Student(
+                id=self._new_id(),
+                usn=normalized_usn,
+                name=name.strip(),
+                email=email.strip().lower(),
+                password_hash=password_hash,
+                semester=int(semester),
+                department=department.strip()
+            )
+            db.add(new_student)
+            
+            created_records = []
+            if initial_records:
+                for rec in initial_records:
+                    new_rec = models.AcademicRecord(
+                        id=self._new_id(),
+                        student_id=new_student.id,
+                        subject=rec.get("subject", "General"),
+                        exam_score=float(rec.get("exam_score", 0)),
+                        assignment_score=float(rec.get("assignment_score", 0)),
+                        attendance=float(rec.get("attendance", 0)),
+                        semester=int(rec.get("semester", semester))
+                    )
+                    db.add(new_rec)
+                    created_records.append(new_rec)
+            
+            db.commit()
+            db.refresh(new_student)
+            
+            return {
+                "id": new_student.id,
+                "usn": new_student.usn,
+                "name": new_student.name,
+                "email": new_student.email,
+                "semester": new_student.semester,
+                "department": new_student.department,
+                "records_count": len(created_records)
+            }
+        except Exception as e:
+            print(f"❌ Error creating student with records: {e}")
+            db.rollback()
+            return None
+        finally:
+            db.close()
+
     def create_student(self, usn, name, email, password_hash, semester, department):
         db = self._get_db()
         try:

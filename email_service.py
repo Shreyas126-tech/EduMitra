@@ -13,16 +13,19 @@ SMTP_USERNAME = os.getenv("SMTP_USERNAME", "").strip().strip('"').strip("'")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip().strip('"').strip("'")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().strip('"').strip("'")
 
-def send_alert_email(subject: str, body_html: str):
-    if not SMTP_USERNAME or not SMTP_PASSWORD or not ADMIN_EMAIL:
-        print("⚠️ SMTP credentials not fully configured. Skipping email dispatch.")
+def send_alert_email(subject: str, body_html: str, recipient: str = None):
+    # Default to ADMIN_EMAIL if no recipient specified
+    target_email = recipient if recipient else ADMIN_EMAIL
+    
+    if not SMTP_USERNAME or not SMTP_PASSWORD or not target_email:
+        print(f"⚠️ SMTP credentials or target email ({target_email}) missing. Skipping dispatch.")
         return False
         
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"] = f"EduMitra Alerts <{SMTP_USERNAME}>"
-        msg["To"] = ADMIN_EMAIL
+        msg["To"] = target_email
 
         part = MIMEText(body_html, "html")
         msg.attach(part)
@@ -32,16 +35,19 @@ def send_alert_email(subject: str, body_html: str):
             server.ehlo()
             server.starttls()
             server.login(SMTP_USERNAME, SMTP_PASSWORD)
-            server.sendmail(SMTP_USERNAME, ADMIN_EMAIL, msg.as_string())
+            server.sendmail(SMTP_USERNAME, target_email, msg.as_string())
         
-        print(f"✅ Alert email sent to {ADMIN_EMAIL}")
+        print(f"✅ Alert email sent to {target_email}")
         return True
     except Exception as e:
-        print(f"❌ Failed to send email: {e}")
+        print(f"❌ Failed to send email to {target_email}: {e}")
         return False
 
-def send_high_risk_alert(student_name: str, usn: str, avg_exam: float, avg_att: float, risk_details: dict):
-    subject = f"[EduMitra Alert] High Risk Student Detected: {student_name} ({usn})"
+def send_high_risk_alert(student_name: str, usn: str, avg_exam: float, avg_att: float, risk_details: dict, student_email: str = None):
+    subject = f"[EduMitra Alert] High Risk Academic Warning: {student_name}"
+    
+    # Send to student primarily, or admin if student email is missing
+    target = student_email if student_email else ADMIN_EMAIL
     
     html = f"""
     <html>
@@ -89,7 +95,7 @@ def send_high_risk_alert(student_name: str, usn: str, avg_exam: float, avg_att: 
     </html>
     """
     
-    return send_alert_email(subject, html)
+    return send_alert_email(subject, html, target)
 
 def send_admin_welcome_alert(admin_name: str, admin_email: str):
     subject = f"Welcome to EduMitra, {admin_name}! 👋"
